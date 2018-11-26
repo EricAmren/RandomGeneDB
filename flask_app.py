@@ -105,6 +105,8 @@ def login():
 if __name__ == "__main__":
   DATABASE = '/home/eric/Documents/M2/prog_web/RandomGeneDB/db/ensembl_hs63_simple.sqlite'
   app.run(debug=True)
+else:
+  DATABASE = '/home/amren/RandomGeneDB/db/ensembl_hs63_simple.sqlite'
 
 
 
