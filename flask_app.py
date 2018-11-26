@@ -1,5 +1,7 @@
 import sqlite3
-from flask import g, Flask, render_template, url_for, redirect, request
+import json
+from flask import g, Flask, render_template
+from flask import url_for, redirect, request, jsonify
 
 
 app = Flask(__name__)
@@ -10,6 +12,12 @@ def get_db():
     db = g._database = sqlite3.connect(DATABASE)
     db.row_factory = sqlite3.Row
   return db
+
+def dict_factory(cursor, row):
+    d = {}
+    for idx, col in enumerate(cursor.description):
+        d[col[0]] = row[idx]
+    return d
 
 def query_db(query, args=(), one=False):
   """
@@ -33,8 +41,6 @@ def add_new_gene(form_dict):
   query = query[:-1] + ");"
   c.execute(query, list(form_dict.values()))
   conn.commit()
-  # return str(list(form_dict.values()))
-  # return query
 
 def get_gene_fields():
   query = "select * from Genes"
@@ -46,6 +52,37 @@ def get_gene_fields():
     field_list.append(field[0])
   return field_list
 
+def get_compact_gene_dict(id):
+  conn = sqlite3.connect(DATABASE)
+  conn.row_factory = dict_factory
+  c = conn.cursor()
+  c.execute('select * from genes where Ensembl_Gene_ID= ?', [id])
+  gene_dict = c.fetchone()
+  conn.close()
+  if gene_dict == None:
+    gene_dict = {}
+    gene_dict["error"] = "404 : Ce gène n'existe pas."
+  return gene_dict
+
+def get_detailed_gene_dict(id):
+  gene_dict = get_compact_gene_dict(id)
+  if gene_dict["error"]:
+    return gene_dict
+  del gene_dict["Transcript_count"]
+  gene_dict["transcripts"] = get_transcript_dict(id)
+  gene_dict["href"] = url_for('gene_json', id=id, _external=True)
+  return gene_dict
+
+def get_transcript_dict(id):
+  conn = sqlite3.connect(DATABASE)
+  conn.row_factory = dict_factory
+  c = conn.cursor()
+  query = ('select Ensembl_Transcript_ID, Transcript_Start, Transcript_End '
+          'from Transcripts where Ensembl_Gene_ID=?')
+  c.execute(query, [id])
+  transcript_dict = c.fetchall()
+  conn.close()
+  return transcript_dict
 ## VIEW
 
 @app.teardown_appcontext
@@ -101,6 +138,15 @@ def register():
 @app.route('/login')
 def login():
   return "TODO"
+
+## API
+
+@app.route('/api/Genes/<id>', methods=['GET'])
+def gene_json(id):
+  # gene_info = query_db('select * from genes where Ensembl_Gene_ID= ?', [id], one=True)
+  gene_dict = get_detailed_gene_dict(id)
+  return jsonify({id:gene_dict})   
+
 
 if __name__ == "__main__":
   DATABASE = '/home/eric/Documents/M2/prog_web/RandomGeneDB/db/ensembl_hs63_simple.sqlite'
