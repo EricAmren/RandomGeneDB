@@ -1,0 +1,63 @@
+import sqlite3
+from flask import g
+from flask import Flask
+from flask import render_template
+from flask import url_for
+from flask import redirect
+from flask import request
+
+app = Flask(__name__)
+
+
+## DATABASE
+
+def get_db():
+    db = getattr(g, '_database', None)
+    if db is None:
+        db = g._database = sqlite3.connect(DATABASE)
+        db.row_factory = sqlite3.Row
+    return db
+
+
+# BASIC FUNCTIONS
+
+def query_db(query, args=(), one=False):
+    cur = get_db().execute(query, args)
+    rv = cur.fetchall()
+    cur.close()
+    return (rv[0] if rv else None) if one else rv
+
+@app.route("/")
+def root():
+    return render_template("./root.html", view=url_for("view"))
+
+@app.route("/Genes/")
+def view():
+    gene_list = query_db('select * from Genes limit ?', [1000])
+    return render_template(url_for("view"), gene_list = gene_list)
+
+@app.route("/Genes/view/<id>")
+def gene_by_ID(id):
+    gene = query_db('select * from genes where Ensembl_Gene_ID= ?', [id], one=True)
+    transcripts = query_db('select Ensembl_Transcript_ID, Transcript_Start, Transcript_End from Transcripts where Ensembl_Gene_ID=?', [id])
+    return render_template("./gene_by_ID.html", gene=gene, transcripts=transcripts, id=id)
+
+@app.route("/Genes/del/<id>", methods=['POST'])
+def del_gene(id):
+    query_db("delete from Genes where Ensembl_Gene_ID= ?", [id])
+    return redirect(url_for("view"))
+
+
+@app.route("/Genes/new", methods=['GET', 'POST'])
+def add_gene():
+    if request.method == 'GET':  # if GET print the form
+        return render_template("./new.html")
+    else:  # if POST return the answers
+        return render_template("./error.html")
+
+
+if __name__ == "__main__":
+    DATABASE = "static/ensembl_hs63_simple.sqlite"
+    app.run(debug=True)
+else:
+    DATABASE = '/home/amren/tp_prog_web/static/ensembl_hs63_simple.sqlite'

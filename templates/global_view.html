@@ -1,0 +1,39 @@
+{% extends "home.html" %}
+
+{% block content %}
+  <h2 style="margin-bottom: 20px;">
+    Liste des gènes de
+    <a href="https://fr.wiktionary.org/wiki/camelopardus#la">camelopardus gigantus</a>
+  </h2>
+
+  <h3>
+      <form action={{url_for('add_gene')}}>
+          <button type="button" class="btn btn-primary btn-lg" onclick="this.form.submit();"
+          data-toggle="tooltip" data-placement="bottom"
+          title="This will bring you to an amazing form"
+          method="GET">
+              <span class="glyphicon glyphicon-plus"></span> Add new gene
+          </button>
+      </form>
+  </h3>
+
+  <ul class="list-group">
+    {% for gene in gene_list %}
+    <li class="list-group-item">
+      <form method="POST" action={{url_for('del_gene', id = gene['Ensembl_Gene_ID'])}} style="display:inline;">
+          <button type="button" class="btn btn-danger btn-sm" onclick="this.form.submit();" data-toggle="tooltip"
+            data-placement="bottom" title="This will erase this gene from the DB." method='POST'>
+            <span class="fas fa-trash"></span>
+          </button>
+        </form>
+      <a href={{url_for("gene_view", id = gene['Ensembl_Gene_ID'])}} style="margin-left:20px;">
+        {{gene['Ensembl_Gene_ID']}}
+      </a> ( {{gene['Associated_Gene_Name']}} )
+
+    </li>
+    {%endfor%}
+  </ul>
+
+</div>
+
+{% endblock %}

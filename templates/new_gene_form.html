@@ -1,0 +1,21 @@
+{% extends "home.html" %}
+{% block content %}
+
+
+<p>
+  <form method="POST" action="">
+    {% for field in fields %}
+      <input class="form-control" type="text" placeholder={{field}} style="margin-bottom: 2px"
+      data-toggle="tooltip" data-placement="bottom" name={{field}} type="submit"
+      title="TODO" >
+    {% endfor %}
+      <button type="button" class="btn btn-success btn-lg" onclick="this.form.submit();"
+      data-toggle="tooltip" data-placement="bottom"
+      title="Add a gene to the DB">
+         <span class="fas fa-plus"></span> Add new gene
+     </button>
+  </form>
+</p>
+
+
+{% endblock %}

@@ -1,0 +1,40 @@
+{% extends "home.html" %}
+{% block content %}
+
+<h2>
+  Informations concerning {{gene['Ensembl_Gene_ID']}}
+</h2>
+<hr>
+<table class="table table-bordered table-sm">
+  {% for key in gene.keys() %}
+  <tr>
+    <th>{{key}}</th>
+    <td>{{gene[key]}}</td>
+  </tr>
+  {% endfor %}
+  </tr>
+</table>
+
+<hr>
+
+<h2>
+  Linked transcripts of {{id}}
+</h2>
+
+{% if transcripts %}
+<table class="table table-striped table-sm">
+  <tr>
+    {% for key in transcripts[0].keys() %}
+    <th>{{key}}</th>
+    {% endfor %}
+  </tr>
+  {% for transcript in transcripts %}
+  {%for key in transcript.keys() %}
+  <td>{{transcript[key]}}</td>
+  {% endfor %}
+  {% endfor %}
+
+</table>
+{% endif %}
+
+{% endblock %}
