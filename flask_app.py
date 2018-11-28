@@ -34,7 +34,7 @@ def delete_gene(id):
   c.execute('delete from Genes where Ensembl_Gene_ID=?', [id])
   conn.commit()
 
-def add_new_gene(form_dict):
+def add_gene_to_DB(form_dict):
   conn = sqlite3.connect(DATABASE)
   c = conn.cursor()
   query = "insert into Genes values(" + len(form_dict) * "?,"
@@ -121,9 +121,8 @@ def add_gene():
     fields = get_gene_fields()
     return render_template("new_gene_form.html", fields = fields)
   else :
-    add_new_gene(request.form)
+    add_gene_to_DB(request.form)
     return redirect(url_for("global_view"))    
-    #return "Vous avez envoyé : {ihi}".format(ihi=request.form['Ensembl_Gene_ID'])
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
@@ -142,14 +141,58 @@ def login():
 ## API
 
 @app.route('/api/Genes/<id>', methods=['GET'])
-def gene_json(id):
-  # gene_info = query_db('select * from genes where Ensembl_Gene_ID= ?', [id], one=True)
+def detailed_json_gene(id):
+  """
+  Fournit la représentation détaillée du gène correspondant.
+  Si l’identifiant fourni ne correspond à aucun gène, retourne un objet erreur
+  avec le code 404.
+  """
   gene_dict = get_detailed_gene_dict(id)
   return jsonify({id:gene_dict})   
 
+@app.route('/api/Genes/', methods=['GET'])
+def compact_json_gene(nb_of_gene=100):
+  """
+  Fournit les 100 premièrs gènes de la base (triés selon Ensembl_Gene_ID),
+  sous la forme d’une liste de représentations compactes.
+  """
+  if "offset" in request.args.keys():
+    offset = int(request.args["offset"])
+  else :
+    offset = 0
+  query = ' select Ensembl_Gene_ID from Genes order by Ensembl_Gene_ID limit ? offset ?'
+  results = query_db(query, [nb_of_gene, offset])
+  gene_list = []
+  for gene in results:
+    gene_list.append(get_compact_gene_dict(gene["Ensembl_Gene_ID"]))
+  gprev = offset - nb_of_gene
+  if gprev < 0:
+    gprev = 0
+  gnext = offset + nb_of_gene
+  gene_dict = {}
+  compact_url = url_for("compact_json_gene", _external = True) 
+  gene_dict["items"] = gene_list
+  gene_dict["first"] = offset + 1
+  gene_dict["last"] = offset + len(gene_list)
+  gene_dict["prev"] = compact_url + "?offset=" + str(gprev)
+  gene_dict["next"] = compact_url + "?offset=" + str(gnext)
+  return jsonify(gene_dict)
+
+@app.route('/api/Genes/', methods=['POST'])
+def add_json_gene(nb_of_gene=100):
+  gene_request = json.dumps(request.json)
+  if gene_request == None:
+    return render_template("error.html")
+  else:
+    # if valid_gene_json(gene_request):
+    #   gene_request.keys()
+    #   add_gene_to_DB(gene_dict)
+    #return json.dumps(gene_request)
+    return type(gene_request)
+    # return str(gene_request.keys())
 
 if __name__ == "__main__":
-  DATABASE = '/home/eric/Documents/M2/prog_web/RandomGeneDB/db/ensembl_hs63_simple.sqlite'
+  DATABASE = './db/ensembl_hs63_simple.sqlite'
   app.run(debug=True)
 else:
   DATABASE = '/home/amren/RandomGeneDB/db/ensembl_hs63_simple.sqlite'
