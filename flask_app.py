@@ -6,6 +6,45 @@ from flask import url_for, redirect, request, jsonify
 
 app = Flask(__name__)
 
+GENE_FIELDS=[
+  {
+    "label" : "Ensembl_Gene_ID",
+    "required" : True,
+    "type" : str
+  },
+  {
+    "label" : "Chromosome_Name",
+    "required" : True,
+    "type" : str
+  },
+  {
+    "label" : "Band",
+    "required" : "False",
+    "type" : str,
+  },
+  {
+    "label" : "Strand",
+    "required" : False,
+    "type" : int
+  },
+  {
+    "label" : "Gene_Start",
+    "required" : True,
+    "type" : int
+  },
+  {
+    "label" : "Gene_End",
+    "required" : True,
+    "type" : int
+  },
+  {
+    "label" : "Associated_Gene_Name",
+    "required" : False,
+    "type" : str
+  }
+  
+]
+
 def get_db():
   db = getattr(g, '_database', None)
   if db is None:
@@ -83,6 +122,18 @@ def get_transcript_dict(id):
   transcript_dict = c.fetchall()
   conn.close()
   return transcript_dict
+
+def is_valid_gene(g_dict):
+  """
+  Takes a json dict and returns a bool.
+  True if valid
+  False else
+  """
+  is_valid = True
+  for field in GENE_FIELDS :
+    print(field)
+  return True
+    
 ## VIEW
 
 @app.teardown_appcontext
@@ -178,17 +229,29 @@ def compact_json_gene(nb_of_gene=100):
   gene_dict["next"] = compact_url + "?offset=" + str(gnext)
   return jsonify(gene_dict)
 
+
+
 @app.route('/api/Genes/', methods=['POST'])
-def add_json_gene(nb_of_gene=100):
-  gene_request = json.dumps(request.json)
-  if gene_request == None:
+def add_json_gene():
+  """
+  accepte une représentation détaillée d’un gène à l’exception de l’attribut 
+  transcripts, et l’ajoute à la base si les conditions suivantes sont remplies.
+  """
+  print(request.headers)
+  g_dict = request.get_json()
+
+  # gene_request = json.dumps(request.json)
+  if g_dict == None:
     return render_template("error.html")
   else:
+    if is_valid_gene(g_dict):
+      # add_gene_to_DB(g_dict)
+      print("end")
     # if valid_gene_json(gene_request):
     #   gene_request.keys()
     #   add_gene_to_DB(gene_dict)
-    #return json.dumps(gene_request)
-    return type(gene_request)
+    return str(g_dict)
+    #return gene_request
     # return str(gene_request.keys())
 
 if __name__ == "__main__":
