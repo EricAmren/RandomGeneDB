@@ -1,49 +1,59 @@
 import sqlite3
 import json
+from cerberus import *
 from flask import g, Flask, render_template
 from flask import url_for, redirect, request, jsonify
 
 
 app = Flask(__name__)
 
-GENE_FIELDS=[
-  {
-    "label" : "Ensembl_Gene_ID",
-    "required" : True,
-    "type" : str
-  },
-  {
-    "label" : "Chromosome_Name",
-    "required" : True,
-    "type" : str
-  },
-  {
-    "label" : "Band",
-    "required" : "False",
-    "type" : str,
-  },
-  {
-    "label" : "Strand",
-    "required" : False,
-    "type" : int
-  },
-  {
-    "label" : "Gene_Start",
-    "required" : True,
-    "type" : int
-  },
-  {
-    "label" : "Gene_End",
-    "required" : True,
-    "type" : int
-  },
-  {
-    "label" : "Associated_Gene_Name",
-    "required" : False,
-    "type" : str
-  }
-  
-]
+
+class GeneValidator(Validator):
+  def _validate_greater_than(self, other, field, value):
+    """ Compare a value with value of another field.
+    The rule's arguments are validated against this schema:
+    {'type': 'string'}
+    """
+    if other not in self.document:
+      return False
+    if value < self.document[other]:
+      self._error(field, "%s must be greater than %s." % (field, other))
+
+  def _validate_no_duplicate(self, value, field, gene_ID):
+    """ Check if an Enseml_Gene_ID already exists in the database.
+    The rule's arguments are validated against this schema:
+    {'type': 'boolean'}
+    """
+    result = query_db('select 1 from Genes where Ensembl_Gene_ID=?', [gene_ID], one=True)
+    if result:
+      self._error(field, "%s is already in the database."  % gene_ID)
+
+
+gene_schema = {
+    'Ensembl_Gene_ID':
+    {'required': True, 'type': 'string', 'empty': False, 'no_duplicate':True},
+
+    'Chromosome_Name':
+    {'required': True, 'type': 'string', 'empty': False},
+
+    'Band':
+    {'required': True, 'type': 'string', 'empty': False},
+
+    'Strand':
+    {'required': False, 'type': 'integer', 'empty': False},
+
+    'Gene_Start':
+    {'required': True, 'type': 'integer', 'empty': False},
+
+    'Gene_End':
+    {'required': True, 'type': 'integer', 'empty': False, 'greater_than': 'Gene_Start'},
+
+    'Associated_Gene_Name':
+    {'required': False, 'type': 'string', 'empty': False}
+}
+
+
+
 
 def get_db():
   db = getattr(g, '_database', None)
@@ -52,11 +62,13 @@ def get_db():
     db.row_factory = sqlite3.Row
   return db
 
+
 def dict_factory(cursor, row):
     d = {}
     for idx, col in enumerate(cursor.description):
         d[col[0]] = row[idx]
     return d
+
 
 def query_db(query, args=(), one=False):
   """
@@ -67,74 +79,92 @@ def query_db(query, args=(), one=False):
   cur.close()
   return (rv[0] if rv else None) if one else rv
 
+
 def delete_gene(id):
   conn = sqlite3.connect(DATABASE)
   c = conn.cursor()
   c.execute('delete from Genes where Ensembl_Gene_ID=?', [id])
   conn.commit()
 
+
 def add_gene_to_DB(form_dict):
   conn = sqlite3.connect(DATABASE)
   c = conn.cursor()
-  query = "insert into Genes values(" + len(form_dict) * "?,"
+  print(form_dict.keys())
+  query = "insert into Genes ("
+  for key in form_dict.keys():
+    query += key + ", "
+  query = query[:-2] + ")" + " values(" + len(form_dict) * "?,"
   query = query[:-1] + ");"
+  print(query)
   c.execute(query, list(form_dict.values()))
   conn.commit()
+
+def gene_is_in_db(gene_ID):
+  return query_db("select 1 from Genes where Ensembl_Gene_ID=?", [gene_ID])
 
 def get_gene_fields():
   query = "select * from Genes"
   cur = get_db().execute(query)
-  s =  cur.description
+  s = cur.description
   cur.close()
   field_list = []
   for field in s:
     field_list.append(field[0])
   return field_list
 
+
 def get_compact_gene_dict(id):
-  conn = sqlite3.connect(DATABASE)
-  conn.row_factory = dict_factory
-  c = conn.cursor()
-  c.execute('select * from genes where Ensembl_Gene_ID= ?', [id])
-  gene_dict = c.fetchone()
-  conn.close()
-  if gene_dict == None:
+  gene_dict = query_db("select * from Genes where Ensembl_Gene_ID=?", [id], one=True)
+  if gene_dict:
+    gene_dict = dict(gene_dict)
+    gene_dict["href"] = url_for('detailed_json_gene', id=id, _external=True)
+  else :
     gene_dict = {}
     gene_dict["error"] = "404 : Ce gène n'existe pas."
   return gene_dict
 
+
+
+
 def get_detailed_gene_dict(id):
   gene_dict = get_compact_gene_dict(id)
-  if gene_dict["error"]:
+  if "error" in gene_dict.keys():
     return gene_dict
   del gene_dict["Transcript_count"]
+  del gene_dict["href"]
   gene_dict["transcripts"] = get_transcript_dict(id)
-  gene_dict["href"] = url_for('gene_json', id=id, _external=True)
   return gene_dict
+
 
 def get_transcript_dict(id):
   conn = sqlite3.connect(DATABASE)
   conn.row_factory = dict_factory
   c = conn.cursor()
   query = ('select Ensembl_Transcript_ID, Transcript_Start, Transcript_End '
-          'from Transcripts where Ensembl_Gene_ID=?')
+           'from Transcripts where Ensembl_Gene_ID=?')
   c.execute(query, [id])
   transcript_dict = c.fetchall()
   conn.close()
   return transcript_dict
 
-def is_valid_gene(g_dict):
+
+def get_gene_json_errors(g_dict):
   """
-  Takes a json dict and returns a bool.
-  True if valid
-  False else
+  Takes a json dict and returns True if valid,
+  else, a list of errors.
   """
-  is_valid = True
-  for field in GENE_FIELDS :
-    print(field)
-  return True
-    
+  gene_validator = GeneValidator(gene_schema)
+  if gene_validator(g_dict):
+    return []
+  else:
+    return gene_validator.errors
+
+def get_etag(resp):
+  return resp.headers["etag"]
+
 ## VIEW
+
 
 @app.teardown_appcontext
 def close_connection(exception):
@@ -142,38 +172,45 @@ def close_connection(exception):
   if db is not None:
     db.close()
 
+
 @app.route('/')
 def root():
   return render_template("home.html")
 
+
 @app.route("/Genes/")
 def global_view():
   gene_list = query_db('select * from Genes limit ?', [1000])
-  return render_template("global_view.html", gene_list = gene_list)
+  return render_template("global_view.html", gene_list=gene_list)
+
 
 @app.route("/Genes/view/<id>")
 def gene_view(id):
-  gene_info = query_db('select * from genes where Ensembl_Gene_ID= ?', [id], one=True)
+  gene_info = query_db(
+      'select * from genes where Ensembl_Gene_ID= ?', [id], one=True)
   query = ('select Ensembl_Transcript_ID, Transcript_Start, Transcript_End '
-          'from Transcripts where Ensembl_Gene_ID=?')
+           'from Transcripts where Ensembl_Gene_ID=?')
   transcripts = query_db(query, [id])
   return render_template("gene_view.html",
-                          gene = gene_info,
-                          transcripts = transcripts)
+                         gene=gene_info,
+                         transcripts=transcripts)
+
 
 @app.route("/Genes/del/<id>", methods=['POST'])
 def del_gene(id):
   delete_gene(id)
   return redirect(url_for("global_view"))
 
+
 @app.route("/Genes/new", methods=['GET', 'POST'])
 def add_gene():
-  if request.method== 'GET':
+  if request.method == 'GET':
     fields = get_gene_fields()
-    return render_template("new_gene_form.html", fields = fields)
-  else :
+    return render_template("new_gene_form.html", fields=fields)
+  else:
     add_gene_to_DB(request.form)
-    return redirect(url_for("global_view"))    
+    return redirect(url_for("global_view"))
+
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
@@ -184,6 +221,7 @@ def register():
         # flash('Thanks for registering')
         return redirect(url_for('login'))
     return "TODO"
+
 
 @app.route('/login')
 def login():
@@ -199,7 +237,10 @@ def detailed_json_gene(id):
   avec le code 404.
   """
   gene_dict = get_detailed_gene_dict(id)
-  return jsonify({id:gene_dict})   
+  if "error" in gene_dict.keys():
+    return jsonify({id: gene_dict}), 404
+  return jsonify({id: gene_dict})
+
 
 @app.route('/api/Genes/', methods=['GET'])
 def compact_json_gene(nb_of_gene=100):
@@ -209,7 +250,7 @@ def compact_json_gene(nb_of_gene=100):
   """
   if "offset" in request.args.keys():
     offset = int(request.args["offset"])
-  else :
+  else:
     offset = 0
   query = ' select Ensembl_Gene_ID from Genes order by Ensembl_Gene_ID limit ? offset ?'
   results = query_db(query, [nb_of_gene, offset])
@@ -221,7 +262,7 @@ def compact_json_gene(nb_of_gene=100):
     gprev = 0
   gnext = offset + nb_of_gene
   gene_dict = {}
-  compact_url = url_for("compact_json_gene", _external = True) 
+  compact_url = url_for("compact_json_gene", _external=True)
   gene_dict["items"] = gene_list
   gene_dict["first"] = offset + 1
   gene_dict["last"] = offset + len(gene_list)
@@ -230,37 +271,54 @@ def compact_json_gene(nb_of_gene=100):
   return jsonify(gene_dict)
 
 
-
 @app.route('/api/Genes/', methods=['POST'])
 def add_json_gene():
   """
   accepte une représentation détaillée d’un gène à l’exception de l’attribut 
   transcripts, et l’ajoute à la base si les conditions suivantes sont remplies.
   """
-  print(request.headers)
   g_dict = request.get_json()
+  errors = get_gene_json_errors(g_dict)
+  response = {}
+  if errors:
+    response["error"] = errors
+    return jsonify(response), 400
+  else :
+    g_dict["Transcript_Count"] = 0
+    print(g_dict)
+    add_gene_to_DB(g_dict)
+    response["created"] = [url_for("detailed_json_gene", id = g_dict["Ensembl_Gene_ID"])]
+    return jsonify(response), 201
 
-  # gene_request = json.dumps(request.json)
-  if g_dict == None:
-    return render_template("error.html")
+@app.route('/api/Genes/<id>', methods=['DELETE'])
+def del_gene_api(id):
+  """
+  supprime le gène correspondant s’il existe, et retourne avec un code 200 un objet de la forme :
+  { "deleted": "<id>" }
+  Si le gène correspondant n’existe pas, retourne un objet erreur avec le code 404.
+  """
+  result = query_db('select 1 from Genes where Ensembl_Gene_ID=?', [id], one=True)
+  response = {}
+  if result:
+    delete_gene(id)
+    response["deleted"] = str(id)
+    return jsonify(response), 200
   else:
-    if is_valid_gene(g_dict):
-      # add_gene_to_DB(g_dict)
-      print("end")
-    # if valid_gene_json(gene_request):
-    #   gene_request.keys()
-    #   add_gene_to_DB(gene_dict)
-    return str(g_dict)
-    #return gene_request
-    # return str(gene_request.keys())
+    response["error"] = "This gene doesn't exist."
+    return jsonify(response), 404
+
+
+
+@app.route('/test/')
+def test_d3():
+  return render_template("test.html")
+
 
 if __name__ == "__main__":
   DATABASE = './db/ensembl_hs63_simple.sqlite'
   app.run(debug=True)
 else:
   DATABASE = '/home/amren/RandomGeneDB/db/ensembl_hs63_simple.sqlite'
-
-
 
 
 
