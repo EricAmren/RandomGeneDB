@@ -1,8 +1,11 @@
 import sqlite3
 import json
 from cerberus import *
-from flask import g, Flask, render_template
-from flask import url_for, redirect, request, jsonify
+from flask import g, Flask, render_template, url_for
+from flask import redirect, request, Response, jsonify
+from flask import make_response
+import os.path, time
+import werkzeug.exceptions
 
 
 app = Flask(__name__)
@@ -24,12 +27,13 @@ class GeneValidator(Validator):
     The rule's arguments are validated against this schema:
     {'type': 'boolean'}
     """
-    result = query_db('select 1 from Genes where Ensembl_Gene_ID=?', [gene_ID], one=True)
-    if result:
-      self._error(field, "%s is already in the database."  % gene_ID)
+    if value :
+      result = query_db('select 1 from Genes where Ensembl_Gene_ID=?', [gene_ID], one=True)
+      if result:
+        self._error(field, "%s is already in the database."  % gene_ID)
 
 
-gene_schema = {
+add_gene_schema = {
     'Ensembl_Gene_ID':
     {'required': True, 'type': 'string', 'empty': False, 'no_duplicate':True},
 
@@ -52,7 +56,13 @@ gene_schema = {
     {'required': False, 'type': 'string', 'empty': False}
 }
 
+update_gene_schema = add_gene_schema
+update_gene_schema['Ensembl_Gene_ID']['no_duplicate'] = False
 
+class NotModified(werkzeug.exceptions.HTTPException):
+    code = 304
+    def get_response(self, environment):
+        return Response(status=304)
 
 
 def get_db():
@@ -90,14 +100,25 @@ def delete_gene(id):
 def add_gene_to_DB(form_dict):
   conn = sqlite3.connect(DATABASE)
   c = conn.cursor()
-  print(form_dict.keys())
   query = "insert into Genes ("
   for key in form_dict.keys():
     query += key + ", "
   query = query[:-2] + ")" + " values(" + len(form_dict) * "?,"
   query = query[:-1] + ");"
-  print(query)
   c.execute(query, list(form_dict.values()))
+  conn.commit()
+
+
+def update_gene(form_dict):
+  conn = sqlite3.connect(DATABASE)
+  c = conn.cursor()
+  query = "update Genes set"
+  for key in form_dict.keys():
+    query += " " + key + " = ?,"
+  query = query[:-1] + " where Ensembl_Gene_ID = ? ;" 
+  values_list = list(form_dict.values())
+  values_list.append(form_dict["Ensembl_Gene_ID"])
+  c.execute(query,values_list)
   conn.commit()
 
 def gene_is_in_db(gene_ID):
@@ -125,8 +146,6 @@ def get_compact_gene_dict(id):
   return gene_dict
 
 
-
-
 def get_detailed_gene_dict(id):
   gene_dict = get_compact_gene_dict(id)
   if "error" in gene_dict.keys():
@@ -149,13 +168,16 @@ def get_transcript_dict(id):
   return transcript_dict
 
 
-def get_gene_json_errors(g_dict):
+def get_gene_json_errors(g_dict, method):
   """
-  Takes a json dict and returns True if valid,
-  else, a list of errors.
+  Takes a json dict and returns its list of errors, empty if there is none.
   """
-  gene_validator = GeneValidator(gene_schema)
-  if gene_validator(g_dict):
+  if method == 'POST':
+    schema = add_gene_schema
+  if method == 'PUT':
+    schema = update_gene_schema
+  gene_validator = GeneValidator(schema)
+  if gene_validator(g_dict): #True if there is no conflict
     return []
   else:
     return gene_validator.errors
@@ -233,10 +255,20 @@ def detailed_json_gene(id):
   Si l’identifiant fourni ne correspond à aucun gène, retourne un objet erreur
   avec le code 404.
   """
+  currver = time.ctime(os.path.getmtime(DATABASE))
+  if request.if_none_match and currver in request.if_none_match:
+    raise NotModified
+
   gene_dict = get_detailed_gene_dict(id)
+  json_dict =  jsonify({id: gene_dict})
+
   if "error" in gene_dict.keys():
-    return jsonify({id: gene_dict}), 404
-  return jsonify({id: gene_dict})
+    response = make_response(json_dict, 404)
+  else:
+    response = make_response(json_dict)
+  response.set_etag(currver)
+  return response
+
 
 
 @app.route('/api/Genes/', methods=['GET'])
@@ -245,6 +277,11 @@ def compact_json_gene(nb_of_gene=100):
   Fournit les 100 premièrs gènes de la base (triés selon Ensembl_Gene_ID),
   sous la forme d’une liste de représentations compactes.
   """
+
+  currver = time.ctime(os.path.getmtime(DATABASE))
+  if request.if_none_match and currver in request.if_none_match:
+    raise NotModified
+
   if "offset" in request.args.keys():
     offset = int(request.args["offset"])
   else:
@@ -265,27 +302,60 @@ def compact_json_gene(nb_of_gene=100):
   gene_dict["last"] = offset + len(gene_list)
   gene_dict["prev"] = compact_url + "?offset=" + str(gprev)
   gene_dict["next"] = compact_url + "?offset=" + str(gnext)
-  return jsonify(gene_dict)
+
+  response = make_response(jsonify(gene_dict))
+  response.set_etag(currver)
+  return response
+   
 
 
-@app.route('/api/Genes/', methods=['POST'])
-def add_json_gene():
+@app.route('/api/Genes/<id>', methods=['POST', 'PUT'])
+def add_json_gene(id=None):
   """
+  METHODE POST :
   accepte une représentation détaillée d’un gène à l’exception de l’attribut 
   transcripts, et l’ajoute à la base si les conditions suivantes sont remplies.
+  METHODE PUT :
+  accepte le même type de données que POST /api/Genes/, avec comme contrainte 
+  supplémentaire que Ensemble_Gene_ID doit être égal à la valeur <id> passée 
+  dans l’URL.
+  Si le gène correspondant existe, il doit être modifié conformément aux données 
+  passées.
+  S’il n’existe pas, il doit être créé (alternative au POST sur la collection).
   """
   g_dict = request.get_json()
-  errors = get_gene_json_errors(g_dict)
-  response = {}
-  if errors:
-    response["error"] = errors
-    return jsonify(response), 400
-  else :
-    g_dict["Transcript_Count"] = 0
-    print(g_dict)
-    add_gene_to_DB(g_dict)
-    response["created"] = [url_for("detailed_json_gene", id = g_dict["Ensembl_Gene_ID"])]
+  if isinstance(g_dict, dict):
+    errors = get_gene_json_errors(g_dict, request.method)
+    response = {}
+    if errors:
+      response["error"] = errors
+      return jsonify(response), 400
+    else :
+      g_dict["Transcript_Count"] = 0
+      if request.method == 'PUT' and g_dict["Ensembl_Gene_ID"] == id:
+        update_gene(g_dict)
+        response["modified"] = [url_for("detailed_json_gene", id = id)]        
+      else:
+        add_gene_to_DB(g_dict)
+        response["created"] = [url_for("detailed_json_gene", id = g_dict["Ensembl_Gene_ID"])]
+      return jsonify(response), 201
+  elif isinstance(g_dict, list) and request.method == 'POST':
+    response = {}
+    response["created"] = []
+    for d in g_dict:
+      errors = get_gene_json_errors(d, request.method)
+      if errors:
+        response["error"] = errors
+        return jsonify(response), 400
+      else :
+        d["Transcript_Count"] = 0
+        add_gene_to_DB(d)
+        response["created"].append([url_for("detailed_json_gene", id = d["Ensembl_Gene_ID"])])
     return jsonify(response), 201
+  else :
+    return "Bad Request", 400
+
+
 
 @app.route('/api/Genes/<id>', methods=['DELETE'])
 def del_gene_api(id):
@@ -303,6 +373,9 @@ def del_gene_api(id):
   else:
     response["error"] = "This gene doesn't exist."
     return jsonify(response), 404
+
+
+  
 
 
 if __name__ == "__main__":
