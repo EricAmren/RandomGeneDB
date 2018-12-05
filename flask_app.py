@@ -160,9 +160,6 @@ def get_gene_json_errors(g_dict):
   else:
     return gene_validator.errors
 
-def get_etag(resp):
-  return resp.headers["etag"]
-
 ## VIEW
 
 
@@ -306,12 +303,6 @@ def del_gene_api(id):
   else:
     response["error"] = "This gene doesn't exist."
     return jsonify(response), 404
-
-
-
-@app.route('/test/')
-def test_d3():
-  return render_template("test.html")
 
 
 if __name__ == "__main__":
