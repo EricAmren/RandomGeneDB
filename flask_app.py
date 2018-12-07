@@ -246,6 +246,11 @@ def register():
 def login():
   return "TODO"
 
+@app.route('/neuro/')
+def neuro():
+  return render_template("neuro.html")
+
+
 ## API
 
 @app.route('/api/Genes/<id>', methods=['GET'])

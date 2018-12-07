@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <script src="https://d3js.org/d3.v4.min.js"></script>
+  <script src="https://code.jquery.com/jquery.min.js"></script>
+  <style>
+    body {
+      margin: 0;
+      position: fixed;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      left: 0;
+    }
+
+    div.bar {
+      display: inline-block;
+      width: 20px;
+      height: 75px;
+      margin-right: 2px;
+      background-color: teal;
+    }
+
+    .cell {
+      fill: grey;
+    }
+
+    .letter {
+      font-family: sans-serif;
+      font-size: 30px;
+    }
+    .cross {
+      font-family: sans-serif;
+      font-size: 30px;
+    }
+
+    .black_letter {
+      font-family: sans-serif;
+      font-size: 30px;
+      fill: black;
+    }
+
+    .fouifoui {
+      font-family: sans-serif;
+      font-size: 150px;
+      fill: black;
+    }
+
+    .lebouton{
+      fill: black;
+    }
+
+    .answer {
+      font-family: sans-serif;
+      font-size: 150px;
+      fill: black;
+    }
+  </style>
+</head>
+
+<body>
+
+    <div id="option">
+        <input name="updateButton" 
+               type="button" 
+               value="yes" 
+               onclick="answerYes()"
+               class="lebouton" />
+    </div>
+    <div id="option">
+        <input name="updateButton" 
+               type="button" 
+               value="no" 
+               onclick="answerNo()"
+               class="lebouton" />
+    </div>
+
+  <script>
+
+    var w = 500,
+      h = 500,
+      svg = d3.select("body")
+        .append("svg")
+        .attr("width", w)
+        .attr("height", h)
+        .attr("class", "svg");
+
+    var ncol = 4,
+      nrow = 4,
+      padding = 1,
+      cell_width = 50,
+      cell_height = 50,
+      margin_left = 25,
+      margin_top = 25,
+      positions = [];
+
+    for (var i = 0; i < ncol; i++) {
+      for (var j = 0; j < nrow; j++) {
+        positions.push([
+          i * (cell_width + padding) + margin_left,
+          j * (cell_height + padding) + margin_top
+        ])
+      }
+    }
+    var cells = svg.selectAll("rect")
+      .data(positions)
+      .enter()
+      .append("rect")
+      .attr("x", function (d) {
+        return d[0];
+      })
+      .attr("y", function (d) {
+        return d[1];
+      })
+      .attr("height", cell_height)
+      .attr("width", cell_width)
+      .classed("cell", "true");
+
+
+    var letter_positions = [];
+    for (var i = 0; i < 4; i++) {
+      letter_positions.push([
+        positions[i + 4][1] + 15,
+        positions[i + 4][0] + 35
+      ])
+    };
+
+    var letters_text = [
+      ["A", "red"],
+      ["B", "green"],
+      ["C", "blue"],
+      ["D", "yellow"]
+    ];
+
+    var letters = svg.selectAll("text.letters")
+      .data(letter_positions)
+      .enter()
+      .append("text")
+      .attr("x", function (d) {
+        return d[0];
+      })
+      .attr("y", function (d) {
+        return d[1];
+      })
+      .text(function (d, i) {
+        return letters_text[i][0];
+      })
+      .attr("fill", function (d, i) {
+        return letters_text[i][1];
+      })
+      .attr("class", "letter");
+
+    var cross_positions = [];
+    var random_cells = [];
+    while (random_cells.length < 4) {
+      var r = Math.floor(Math.random() * 12);
+      if (r > 3) r = r + 4;
+      if (random_cells.indexOf(r) === -1) random_cells.push(r);
+    };
+    random_cells.forEach(cell_number => {
+      var xcross = positions[cell_number][1];
+      var ycross = positions[cell_number][0];
+      cross_positions.push([xcross, ycross])
+    });
+
+    function shuffle(a) {
+      var j, x, i;
+      for (i = a.length - 1; i > 0; i--) {
+        j = Math.floor(Math.random() * (i + 1));
+        x = a[i];
+        a[i] = a[j];
+        a[j] = x;
+      }
+      return a;
+    }
+    var crosses_colors = ["red", "green", "blue", "yellow"];
+    shuffle(crosses_colors)
+
+    var crosses = svg.selectAll("text.crosses")
+      .data(cross_positions)
+      .enter()
+      .append("text")
+      .attr("x", function (d) {
+        return d[0] + 15;
+      })
+      .attr("y", function (d) {
+        return d[1] + 35;
+      })
+      .text("+")
+      .attr("fill", function (d, i) {
+        return crosses_colors[i];
+      })
+      .attr("class", "cross");
+
+    // Randomly choose if answer will be yes or no
+    var random_boolean = Math.random() >= 0.5;
+    var cross_list = document.getElementsByClassName("cross");
+    var rand_cross = cross_list[Math.floor(Math.random() * cross_list.length)];
+
+    var true_letter;
+    console.log(rand_cross);
+    letters_text.forEach(function(letter){
+      if (letter[1] === rand_cross.getAttribute("fill")){
+        true_letter = letter[0];
+      }
+    });
+    
+    console.log(true_letter);
+
+
+    svg.append("text")
+    .attr("x", rand_cross.getAttribute("x"))
+    .attr("y", rand_cross.getAttribute("y"))
+    .text(true_letter)
+    .attr("class", "black_letter");
+ 
+    $(".black_letter").fadeToggle(0);
+
+    svg.append("text")
+    .attr("x", 60)
+    .attr("y", 180)
+    .text("+")
+    .attr("class", "fouifoui");
+    $(".fouifoui").fadeToggle(0);
+
+    svg.append("button")
+    .attr("type" , "button")
+    .attr("class", "lebouton");
+    $(".lebouton").fadeToggle(0);
+
+
+    function show_button(){
+      $(".black_letter").fadeToggle(500);
+      $(".lebouton").fadeToggle(500);
+      $(".cell").fadeToggle(500, "swing");
+
+    }
+
+
+    function show_empty(){
+      $(".fouifoui").fadeToggle(500);
+      setTimeout(show_black_letter, 1000);
+    }
+
+    function show_black_letter(){
+      $(".cell").fadeToggle(500, "swing");
+      $(".fouifoui").fadeToggle(500); 
+      $(".black_letter").fadeToggle(500);
+      setTimeout(show_button, 2000);
+    }
+
+
+    svg.append("text")
+    function fadeOut(){
+      $(".cell").fadeToggle(500, "swing");
+      $(".letter").fadeToggle(500, "swing",function(){
+        this.remove();
+      });
+      $(".cross").fadeToggle(500, "swing",function(){
+        this.remove();
+      });
+      show_empty();
+    }
+
+    function answerYes(){
+      if (random_boolean === true){
+        svg.append("text")
+          .attr("x", 100)
+          .attr("y", 150)
+          .text("OK")
+          .attr("class", "answer");
+        console.log("true");
+      }
+      else {
+        svg.append("text")
+          .attr("x", 100)
+          .attr("y", 150)
+          .text("KO")
+          .attr("class", "answer"); 
+        console.log("false");
+      }
+    }
+
+        function answerNo(){
+      if (random_boolean === true){
+        svg.append("text")
+          .attr("x", 100)
+          .attr("y", 150)
+          .text("KO")
+          .attr("class", "answer");
+      }
+      else {
+        svg.append("text")
+          .attr("x", 100)
+          .attr("y", 150)
+          .text("OK")
+          .attr("class", "answer"); 
+      }
+    }
+
+    var delay = 5000; //5 seconds
+    setTimeout(fadeOut, delay);
+  </script>
+
+</body>
+
+</html>
